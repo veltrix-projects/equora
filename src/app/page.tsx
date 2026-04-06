@@ -26,6 +26,7 @@ export default function Home() {
   const [showDrafts, setShowDrafts] = useState(false);
   const [nudge, setNudge] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   // 1. Handle Auth State
   useEffect(() => {
@@ -93,6 +94,8 @@ export default function Home() {
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
     setError(null);
     let res;
     if (authView === 'login') {
@@ -103,6 +106,10 @@ export default function Home() {
 
     if (res.error) {
       setError(res.error.message);
+      setSubmitting(false);
+    } else {
+      // res.data.user will be set via onAuthStateChange
+      setSubmitting(false);
     }
   };
 
@@ -214,8 +221,12 @@ export default function Home() {
               )}
             </AnimatePresence>
 
-            <button type="submit" className="w-full bg-primary text-primary-foreground py-4 rounded-xl font-bold mt-4 shadow-lg shadow-primary/20">
-              {authView === 'login' ? 'Sign In' : 'Create Account'}
+            <button 
+              type="submit" 
+              disabled={submitting}
+              className="w-full bg-primary text-primary-foreground py-4 rounded-xl font-bold mt-4 shadow-lg shadow-primary/20 disabled:opacity-50"
+            >
+              {submitting ? 'Please wait...' : (authView === 'login' ? 'Sign In' : 'Create Account')}
             </button>
           </form>
           <button onClick={() => { setAuthView(authView === 'login' ? 'signup' : 'login'); setError(null); }} className="w-full text-center mt-6 text-sm text-muted-foreground hover:text-foreground">
