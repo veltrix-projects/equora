@@ -1,10 +1,11 @@
 "use client";
 
 import { useEquoraStore } from "@/store/useEquoraStore";
-import { Plus, Users, Wallet, Key } from "lucide-react";
+import { Plus, Users, Wallet, Key, ArrowRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useGroups } from "@/hooks/useGroups";
+import { calculateSettlements, Settlement } from "@/utils/settlement";
 
 export default function Dashboard() {
   const { groups, balances, user, setActiveGroup } = useEquoraStore();
@@ -13,8 +14,15 @@ export default function Dashboard() {
   const [modalMode, setModalMode] = useState<'create' | 'join'>('create');
   const [name, setName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
+  const [settlements, setSettlements] = useState<Settlement[]>([]);
 
   const totalBalance = balances.reduce((acc, curr) => acc + Number(curr.balance), 0);
+
+  useEffect(() => {
+    if (balances.length > 0) {
+      setSettlements(calculateSettlements(balances));
+    }
+  }, [balances]);
 
   const handleAction = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,6 +40,13 @@ export default function Dashboard() {
     }
   };
 
+  const getStatusMessage = () => {
+    if (balances.length === 0) return "No active balances.";
+    if (Math.abs(totalBalance) < 0.01) return "You are settled 🎉";
+    if (totalBalance > 0) return `You are owed ₹${totalBalance.toLocaleString()} ✅`;
+    return `You owe ₹${Math.abs(totalBalance).toLocaleString()} 👀`;
+  };
+
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-8">
       {/* Summary Card */}
@@ -45,14 +60,41 @@ export default function Dashboard() {
           <h2 className={`text-5xl font-black ${totalBalance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
             ₹{Math.abs(totalBalance).toLocaleString()}
           </h2>
-          <p className="text-sm mt-2 text-muted-foreground">
-            {totalBalance >= 0 ? "You are owed in total" : "You owe in total"}
+          <p className="text-sm mt-2 font-medium opacity-80">
+            {getStatusMessage()}
           </p>
         </div>
         <div className="absolute right-0 top-0 p-8 opacity-10">
           <Wallet size={120} />
         </div>
       </motion.div>
+
+      {/* Settlement Visualization */}
+      {settlements.length > 0 && (
+        <section className="space-y-4">
+          <h3 className="text-xl font-semibold flex items-center gap-2">
+            Suggested Settlements <span className="text-xs bg-primary/20 text-primary px-2 py-1 rounded-full">Optimized</span>
+          </h3>
+          <div className="space-y-2">
+            {settlements.map((s, i) => (
+              <div key={i} className="glass p-4 rounded-2xl flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-rose-400/20 text-rose-400 flex items-center justify-center text-[10px] font-bold">OWE</div>
+                  <span className="text-sm font-medium">You</span>
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-lg font-black text-primary">₹{s.amount}</span>
+                  <ArrowRight size={16} className="text-muted-foreground" />
+                </div>
+                <div className="flex items-center gap-3 text-right">
+                  <span className="text-sm font-medium">Member</span>
+                  <div className="w-8 h-8 rounded-full bg-emerald-400/20 text-emerald-400 flex items-center justify-center text-[10px] font-bold">GET</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Groups Grid */}
       <section>

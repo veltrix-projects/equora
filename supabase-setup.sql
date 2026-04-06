@@ -36,6 +36,7 @@ create table expenses (
   date timestamp with time zone default timezone('utc'::text, now()) not null,
   is_recurring boolean default false,
   is_draft boolean default false,
+  request_id text unique, -- Idempotency protection
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
@@ -143,6 +144,42 @@ create trigger trg_update_balances_on_split
 after insert or delete on splits
 for each row execute function update_group_balances_on_split_change();
 
+-- INDEXING FOR PERFORMANCE
+create index idx_expenses_group_id on expenses(group_id);
+create index idx_expenses_created_at on expenses(created_at);
+create index idx_splits_user_id on splits(user_id);
+create index idx_group_members_group_id on group_members(group_id);
+create index idx_group_balances_group_id on group_balances(group_id);
+
+-- Reconciliation System: Recalculate group_balances from splits
+create or replace function reconcile_group_balances(p_group_id uuid)
+returns void as $$
+begin
+  -- Clear existing balances for the group
+  update group_balances set balance = 0 where group_id = p_group_id;
+
+  -- Recompute from splits
+  -- 1. Decrease balance for users who owe (debtors)
+  insert into group_balances (group_id, user_id, balance)
+  select e.group_id, s.user_id, -sum(s.amount)
+  from splits s
+  join expenses e on s.expense_id = e.id
+  where e.group_id = p_group_id
+  group by e.group_id, s.user_id
+  on conflict (group_id, user_id) 
+  do update set balance = excluded.balance;
+
+  -- 2. Increase balance for users who paid (creditors)
+  insert into group_balances (group_id, user_id, balance)
+  select group_id, paid_by, sum(amount)
+  from expenses
+  where group_id = p_group_id
+  group by group_id, paid_by
+  on conflict (group_id, user_id) 
+  do update set balance = group_balances.balance + excluded.balance;
+end;
+$$ language plpgsql;
+
 -- AI Usage Tracking Function
 create or replace function increment_ai_usage(p_group_id uuid)
 returns void as $$
@@ -169,20 +206,46 @@ begin
 end;
 $$ language plpgsql;
 
--- RLS POLICIES (Simplified for Setup)
+-- RLS POLICIES (Hardened)
 alter table groups enable row level security;
 alter table group_members enable row level security;
 alter table expenses enable row level security;
 alter table splits enable row level security;
 alter table group_balances enable row level security;
+alter table drafts enable row level security;
 
--- Basic policy: Users can see groups they are members of
-create policy "Users can view their groups"
-on groups for select
-using (
-  exists (
+-- Helper function for RLS: check if user is member of a group
+create or replace function is_group_member(p_group_id uuid)
+returns boolean as $$
+begin
+  return exists (
     select 1 from group_members
-    where group_members.group_id = groups.id
-    and group_members.user_id = auth.uid()
-  )
+    where group_id = p_group_id and user_id = auth.uid()
+  );
+end;
+$$ language plpgsql;
+
+-- Groups: Members can view and admins can update
+create policy "Members can view groups" on groups for select using (is_group_member(id));
+create policy "Admins can update groups" on groups for update using (
+  exists (select 1 from group_members where group_id = id and user_id = auth.uid() and role = 'admin')
 );
+
+-- Group Members: Members can view each other
+create policy "Members can view group_members" on group_members for select using (is_group_member(group_id));
+
+-- Expenses: Members can view and add, but only creator can delete
+create policy "Members can view expenses" on expenses for select using (is_group_member(group_id));
+create policy "Members can add expenses" on expenses for insert with check (is_group_member(group_id));
+create policy "Creator can delete expenses" on expenses for delete using (paid_by = auth.uid());
+
+-- Splits: Members can view
+create policy "Members can view splits" on splits for select using (
+  exists (select 1 from expenses where id = expense_id and is_group_member(group_id))
+);
+
+-- Balances: Members can view
+create policy "Members can view balances" on group_balances for select using (is_group_member(group_id));
+
+-- Drafts: Only owner can access
+create policy "Owners can manage drafts" on drafts using (user_id = auth.uid());

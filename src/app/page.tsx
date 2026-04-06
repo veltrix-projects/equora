@@ -13,13 +13,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import { LogOut, Sparkles } from "lucide-react";
 
 export default function Home() {
-  const { user, setUser, activeGroup, setActiveGroup, groups, setGroups } = useEquoraStore();
+  const { user, setUser, activeGroup, setActiveGroup, groups, setGroups, expenses, setExpenses } = useEquoraStore();
   const { fetchGroups, createGroup, joinGroup } = useGroups();
   const [loading, setLoading] = useState(true);
   const [authView, setAuthView] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [currentExpenses, setCurrentExpenses] = useState<any[]>([]);
 
   // 1. Handle Auth State
   useEffect(() => {
@@ -45,7 +44,7 @@ export default function Home() {
         .select('*')
         .eq('group_id', activeGroup.id)
         .order('date', { ascending: false })
-        .then(({ data }) => setCurrentExpenses(data || []));
+        .then(({ data }) => setExpenses(data || []));
     }
   }, [activeGroup]);
 
@@ -61,53 +60,69 @@ export default function Home() {
   const handleAddExpense = async (parsedData: any) => {
     if (!activeGroup || !user) return;
     
-    // 1. Get all members to split with
-    const { data: members } = await supabase
-      .from('group_members')
-      .select('user_id')
-      .eq('group_id', activeGroup.id);
-
-    if (!members || members.length === 0) return;
-
-    // 2. Insert Expense
-    const { data: exp, error: expErr } = await supabase.from('expenses').insert({
+    const requestId = crypto.randomUUID();
+    const optimisticExpense = {
+      id: requestId, // Temporary ID
       group_id: activeGroup.id,
       paid_by: user.id,
       description: parsedData.description,
       amount: parsedData.amount,
-      category: 'general'
-    }).select().single();
+      category: 'general',
+      date: new Date().toISOString(),
+      optimistic: true
+    };
 
-    if (expErr) throw expErr;
+    // Optimistic Update
+    const previousExpenses = [...expenses];
+    setExpenses([optimisticExpense, ...expenses]);
 
-    // 3. Create Splits (Equal split among all members for now)
-    const splitAmount = parsedData.amount / members.length;
-    const splits = members.map(m => ({
-      expense_id: exp.id,
-      user_id: m.user_id,
-      amount: Number(splitAmount.toFixed(2))
-    }));
+    try {
+      // 1. Get all members to split with
+      const { data: members } = await supabase
+        .from('group_members')
+        .select('user_id')
+        .eq('group_id', activeGroup.id);
 
-    const { error: splitErr } = await supabase.from('splits').insert(splits);
-    if (splitErr) throw splitErr;
+      if (!members || members.length === 0) throw new Error("No members found");
 
-    // Refresh expenses and balances
-    const { data: updatedExpenses } = await supabase
-      .from('expenses')
-      .select('*')
-      .eq('group_id', activeGroup.id)
-      .order('date', { ascending: false });
-    
-    setCurrentExpenses(updatedExpenses || []);
+      // 2. Insert Expense
+      const { data: exp, error: expErr } = await supabase.from('expenses').insert({
+        group_id: activeGroup.id,
+        paid_by: user.id,
+        description: parsedData.description,
+        amount: parsedData.amount,
+        category: 'general',
+        request_id: requestId
+      }).select().single();
 
-    // Refresh balances in store
-    const { data: updatedBalances } = await supabase
-      .from('group_balances')
-      .select('*')
-      .eq('group_id', activeGroup.id);
-    if (updatedBalances) {
-       // useEquoraStore.getState().setBalances(updatedBalances) // Correct way to update store
-       // For now, simple setBalances from context if needed.
+      if (expErr) throw expErr;
+
+      // 3. Create Splits
+      const splitAmount = parsedData.amount / members.length;
+      const splits = members.map(m => ({
+        expense_id: exp.id,
+        user_id: m.user_id,
+        amount: Number(splitAmount.toFixed(2))
+      }));
+
+      const { error: splitErr } = await supabase.from('splits').insert(splits);
+      if (splitErr) throw splitErr;
+
+      // Replace optimistic expense with real one
+      setExpenses([exp, ...previousExpenses]);
+
+      // Refresh balances (Triggers handle DB side, we just fetch)
+      const { data: updatedBalances } = await supabase
+        .from('group_balances')
+        .select('*')
+        .eq('group_id', activeGroup.id);
+      if (updatedBalances) {
+         useEquoraStore.getState().setBalances(updatedBalances);
+      }
+    } catch (error) {
+      console.error("Failed to add expense:", error);
+      setExpenses(previousExpenses); // Rollback
+      alert("Failed to add expense. Please try again.");
     }
   };
 
@@ -157,7 +172,7 @@ export default function Home() {
            
            <section>
              <h3 className="text-lg font-semibold italic mb-4">Recent Activity</h3>
-             <ExpenseFeed expenses={currentExpenses} />
+             <ExpenseFeed expenses={expenses} />
            </section>
         </div>
       )}

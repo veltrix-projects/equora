@@ -12,9 +12,9 @@ export default function ExpenseFeed({ expenses }: { expenses: Expense[] }) {
         <motion.div
           key={expense.id}
           initial={{ opacity: 0, x: -10 }}
-          animate={{ opacity: 1, x: 0 }}
+          animate={{ opacity: expense.optimistic ? 0.5 : 1, x: 0 }}
           transition={{ delay: idx * 0.05 }}
-          className="glass p-4 rounded-2xl flex justify-between items-center group"
+          className={`glass p-4 rounded-2xl flex justify-between items-center group ${expense.optimistic ? 'animate-pulse' : ''}`}
         >
           <div className="flex gap-4 items-center">
             <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center text-lg">
