@@ -11,7 +11,7 @@ import { useGroups } from "@/hooks/useGroups";
 import { useExpenses } from "@/hooks/useExpenses";
 import { supabase } from "@/lib/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
-import { LogOut, Sparkles, Inbox, Bell } from "lucide-react";
+import { LogOut, Sparkles, Inbox, Bell, X } from "lucide-react";
 
 import { useRouter } from "next/navigation";
 
@@ -25,13 +25,13 @@ export default function Home() {
   const [password, setPassword] = useState("");
   const [showDrafts, setShowDrafts] = useState(false);
   const [nudge, setNudge] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   // 1. Handle Auth State
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        // Check for pending join token
         const token = localStorage.getItem('join_token');
         if (token) {
           localStorage.removeItem('join_token');
@@ -62,7 +62,6 @@ export default function Home() {
   };
 
   const checkNudges = async (userId: string) => {
-    // Simple nudge logic
     const { data: recentExpenses } = await supabase
       .from('expenses')
       .select('created_at')
@@ -94,10 +93,16 @@ export default function Home() {
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
+    let res;
     if (authView === 'login') {
-      await supabase.auth.signInWithPassword({ email, password });
+      res = await supabase.auth.signInWithPassword({ email, password });
     } else {
-      await supabase.auth.signUp({ email, password });
+      res = await supabase.auth.signUp({ email, password });
+    }
+
+    if (res.error) {
+      setError(res.error.message);
     }
   };
 
@@ -106,7 +111,7 @@ export default function Home() {
     
     const requestId = crypto.randomUUID();
     const optimisticExpense = {
-      id: requestId, // Temporary ID
+      id: requestId,
       group_id: activeGroup.id,
       paid_by: user.id,
       description: parsedData.description,
@@ -116,12 +121,10 @@ export default function Home() {
       optimistic: true
     };
 
-    // Optimistic Update
     const previousExpenses = [...expenses];
     setExpenses([optimisticExpense, ...expenses]);
 
     try {
-      // 1. Get all members to split with
       const { data: members } = await supabase
         .from('group_members')
         .select('user_id')
@@ -129,7 +132,6 @@ export default function Home() {
 
       if (!members || members.length === 0) throw new Error("No members found");
 
-      // 2. Insert Expense
       const { data: exp, error: expErr } = await supabase.from('expenses').insert({
         group_id: activeGroup.id,
         paid_by: user.id,
@@ -141,7 +143,6 @@ export default function Home() {
 
       if (expErr) throw expErr;
 
-      // 3. Create Splits
       const splitAmount = parsedData.amount / members.length;
       const splits = members.map(m => ({
         expense_id: exp.id,
@@ -152,10 +153,8 @@ export default function Home() {
       const { error: splitErr } = await supabase.from('splits').insert(splits);
       if (splitErr) throw splitErr;
 
-      // Replace optimistic expense with real one
       setExpenses([exp, ...previousExpenses]);
 
-      // Refresh balances
       const { data: updatedBalances } = await supabase
         .from('group_balances')
         .select('*')
@@ -165,7 +164,7 @@ export default function Home() {
       }
     } catch (error) {
       console.error("Failed to add expense:", error);
-      setExpenses(previousExpenses); // Rollback
+      setExpenses(previousExpenses);
       alert("Failed to add expense. Please try again.");
     }
   };
@@ -206,11 +205,20 @@ export default function Home() {
           <form onSubmit={handleAuth} className="space-y-4">
             <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full glass bg-transparent px-4 py-3 rounded-xl outline-none border-none" required />
             <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full glass bg-transparent px-4 py-3 rounded-xl outline-none border-none" required />
+            
+            <AnimatePresence>
+              {error && (
+                <motion.p initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="text-rose-400 text-xs font-medium text-center">
+                  {error}
+                </motion.p>
+              )}
+            </AnimatePresence>
+
             <button type="submit" className="w-full bg-primary text-primary-foreground py-4 rounded-xl font-bold mt-4 shadow-lg shadow-primary/20">
               {authView === 'login' ? 'Sign In' : 'Create Account'}
             </button>
           </form>
-          <button onClick={() => setAuthView(authView === 'login' ? 'signup' : 'login')} className="w-full text-center mt-6 text-sm text-muted-foreground hover:text-foreground">
+          <button onClick={() => { setAuthView(authView === 'login' ? 'signup' : 'login'); setError(null); }} className="w-full text-center mt-6 text-sm text-muted-foreground hover:text-foreground">
             {authView === 'login' ? "Don't have an account? Sign Up" : "Already have an account? Sign In"}
           </button>
         </motion.div>
