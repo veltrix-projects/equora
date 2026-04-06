@@ -13,7 +13,10 @@ import { supabase } from "@/lib/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
 import { LogOut, Sparkles, Inbox, Bell } from "lucide-react";
 
+import { useRouter } from "next/navigation";
+
 export default function Home() {
+  const router = useRouter();
   const { user, setUser, activeGroup, setActiveGroup, groups, setGroups, expenses, setExpenses, drafts, setDrafts } = useEquoraStore();
   const { fetchGroups, createGroup, joinGroup } = useGroups();
   const [loading, setLoading] = useState(true);
@@ -28,6 +31,13 @@ export default function Home() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       if (session?.user) {
+        // Check for pending join token
+        const token = localStorage.getItem('join_token');
+        if (token) {
+          localStorage.removeItem('join_token');
+          router.push(`/join/${token}`);
+          return;
+        }
         fetchGroups(session.user.id);
         fetchDrafts(session.user.id);
         checkNudges(session.user.id);

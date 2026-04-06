@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { Group, GroupBalance } from '../types';
 
 interface EquoraState {
@@ -16,17 +17,32 @@ interface EquoraState {
   setDrafts: (drafts: any[]) => void;
 }
 
-export const useEquoraStore = create<EquoraState>((set) => ({
-  user: null,
-  groups: [],
-  activeGroup: null,
-  balances: [],
-  expenses: [],
-  drafts: [],
-  setUser: (user) => set({ user }),
-  setGroups: (groups) => set({ groups }),
-  setActiveGroup: (group) => set({ activeGroup: group }),
-  setBalances: (balances) => set({ balances }),
-  setExpenses: (expenses) => set({ expenses }),
-  setDrafts: (drafts) => set({ drafts }),
-}));
+export const useEquoraStore = create<EquoraState>()(
+  persist(
+    (set) => ({
+      user: null,
+      groups: [],
+      activeGroup: null,
+      balances: [],
+      expenses: [],
+      drafts: [],
+      setUser: (user) => set({ user }),
+      setGroups: (groups) => set({ groups }),
+      setActiveGroup: (group) => set({ activeGroup: group }),
+      setBalances: (balances) => set({ balances }),
+      setExpenses: (expenses) => set({ expenses }),
+      setDrafts: (drafts) => set({ drafts }),
+    }),
+    {
+      name: 'equora-storage',
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        groups: state.groups,
+        activeGroup: state.activeGroup,
+        balances: state.balances,
+        expenses: state.expenses,
+        drafts: state.drafts,
+      }),
+    }
+  )
+);
