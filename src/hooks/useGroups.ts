@@ -56,5 +56,19 @@ export const useGroups = () => {
     return group;
   };
 
-  return { createGroup, joinGroup };
+  const fetchGroups = async (userId: string) => {
+    const { data, error } = await supabase
+      .from('group_members')
+      .select('groups (*)')
+      .eq('user_id', userId);
+
+    if (data) {
+      const flatGroups = data.map((m: any) => m.groups);
+      setGroups(flatGroups);
+      return flatGroups;
+    }
+    return [];
+  };
+
+  return { createGroup, joinGroup, fetchGroups };
 };
