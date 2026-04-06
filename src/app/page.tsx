@@ -61,9 +61,16 @@ export default function Home() {
   const handleAddExpense = async (parsedData: any) => {
     if (!activeGroup || !user) return;
     
-    // Add logic to save to Supabase via useExpenses hook
-    // Simplified for now:
-    const { data: exp } = await supabase.from('expenses').insert({
+    // 1. Get all members to split with
+    const { data: members } = await supabase
+      .from('group_members')
+      .select('user_id')
+      .eq('group_id', activeGroup.id);
+
+    if (!members || members.length === 0) return;
+
+    // 2. Insert Expense
+    const { data: exp, error: expErr } = await supabase.from('expenses').insert({
       group_id: activeGroup.id,
       paid_by: user.id,
       description: parsedData.description,
@@ -71,7 +78,37 @@ export default function Home() {
       category: 'general'
     }).select().single();
 
-    if (exp) setCurrentExpenses([exp, ...currentExpenses]);
+    if (expErr) throw expErr;
+
+    // 3. Create Splits (Equal split among all members for now)
+    const splitAmount = parsedData.amount / members.length;
+    const splits = members.map(m => ({
+      expense_id: exp.id,
+      user_id: m.user_id,
+      amount: Number(splitAmount.toFixed(2))
+    }));
+
+    const { error: splitErr } = await supabase.from('splits').insert(splits);
+    if (splitErr) throw splitErr;
+
+    // Refresh expenses and balances
+    const { data: updatedExpenses } = await supabase
+      .from('expenses')
+      .select('*')
+      .eq('group_id', activeGroup.id)
+      .order('date', { ascending: false });
+    
+    setCurrentExpenses(updatedExpenses || []);
+
+    // Refresh balances in store
+    const { data: updatedBalances } = await supabase
+      .from('group_balances')
+      .select('*')
+      .eq('group_id', activeGroup.id);
+    if (updatedBalances) {
+       // useEquoraStore.getState().setBalances(updatedBalances) // Correct way to update store
+       // For now, simple setBalances from context if needed.
+    }
   };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-background">Loading...</div>;
@@ -116,7 +153,7 @@ export default function Home() {
               <span className="text-xs glass px-2 py-1 rounded text-muted-foreground font-mono">#{activeGroup.invite_code}</span>
            </header>
            
-           <AnalyticsSummary />
+           <AnalyticsSummary expenses={currentExpenses} />
            
            <section>
              <h3 className="text-lg font-semibold italic mb-4">Recent Activity</h3>

@@ -70,5 +70,16 @@ export const useGroups = () => {
     return [];
   };
 
-  return { createGroup, joinGroup, fetchGroups };
+  const getGroupMembers = async (groupId: string) => {
+    const { data, error } = await supabase
+      .from('group_members')
+      .select('user_id, role, joined_at')
+      .eq('group_id', groupId);
+    
+    // In a real app, you'd join with a 'profiles' table here.
+    // For now, we'll fetch the user IDs to handle splits.
+    return data || [];
+  };
+
+  return { createGroup, joinGroup, fetchGroups, getGroupMembers };
 };

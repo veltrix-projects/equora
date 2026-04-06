@@ -2,17 +2,23 @@
 
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
-const data = [
-  { name: 'Food', amount: 4500 },
-  { name: 'Rent', amount: 15000 },
-  { name: 'Travel', amount: 2300 },
-  { name: 'Utilities', amount: 3200 },
-  { name: 'Others', amount: 1200 },
-];
-
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
-export default function AnalyticsSummary() {
+export default function AnalyticsSummary({ expenses = [] }: { expenses?: any[] }) {
+  // Aggregate real spending by category
+  const categoryData = expenses.reduce((acc: any, curr) => {
+    const category = curr.category || 'general';
+    const existing = acc.find((item: any) => item.name === category);
+    if (existing) {
+      existing.amount += Number(curr.amount);
+    } else {
+      acc.push({ name: category, amount: Number(curr.amount) });
+    }
+    return acc;
+  }, []);
+
+  const data = categoryData.length > 0 ? categoryData : [{ name: 'None', amount: 0 }];
+
   return (
     <div className="glass p-6 rounded-3xl h-[300px] w-full">
       <h3 className="text-sm font-medium text-muted-foreground mb-4 uppercase tracking-wider">Spending by Category</h3>
@@ -23,7 +29,8 @@ export default function AnalyticsSummary() {
             dataKey="name" 
             axisLine={false} 
             tickLine={false} 
-            tick={{ fill: '#888', fontSize: 12 }}
+            tick={{ fill: '#888', fontSize: 10 }}
+            className="capitalize"
           />
           <YAxis hide />
           <Tooltip 
