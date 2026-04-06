@@ -226,12 +226,14 @@ end;
 $$ language plpgsql;
 
 -- Groups: Members can view and admins can update
+create policy "Authenticated users can create groups" on groups for insert with check (auth.role() = 'authenticated');
 create policy "Members can view groups" on groups for select using (is_group_member(id));
 create policy "Admins can update groups" on groups for update using (
   exists (select 1 from group_members where group_id = id and user_id = auth.uid() and role = 'admin')
 );
 
 -- Group Members: Members can view each other
+create policy "Users can add themselves to groups" on group_members for insert with check (auth.uid() = user_id);
 create policy "Members can view group_members" on group_members for select using (is_group_member(group_id));
 
 -- Expenses: Members can view and add, but only creator can delete

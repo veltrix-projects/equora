@@ -6,7 +6,17 @@ export const useGroups = () => {
 
   const createGroup = async (name: string, description: string, userId: string) => {
     // Generate invite code using the DB function (via RPC)
-    const { data: inviteCode } = await supabase.rpc('generate_invite_code');
+    let inviteCode;
+    try {
+      const { data } = await supabase.rpc('generate_invite_code');
+      inviteCode = data;
+    } catch (e) {
+      console.warn("RPC invite code failed, using fallback", e);
+    }
+
+    if (!inviteCode) {
+      inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    }
 
     const { data: group, error: groupError } = await supabase
       .from('groups')
@@ -19,7 +29,10 @@ export const useGroups = () => {
       .select()
       .single();
 
-    if (groupError) throw groupError;
+    if (groupError) {
+      console.error("Group Insert Error:", groupError);
+      throw new Error(groupError.message);
+    }
 
     // Add creator as admin member
     const { error: memberError } = await supabase
@@ -30,7 +43,10 @@ export const useGroups = () => {
         role: 'admin',
       });
 
-    if (memberError) throw memberError;
+    if (memberError) {
+      console.error("Member Insert Error:", memberError);
+      throw new Error(memberError.message);
+    }
 
     return group;
   };
