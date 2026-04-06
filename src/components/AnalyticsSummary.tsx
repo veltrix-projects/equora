@@ -38,7 +38,7 @@ export default function AnalyticsSummary({ expenses = [] }: { expenses?: any[] }
             contentStyle={{ backgroundColor: '#111', border: '1px solid #333', borderRadius: '12px' }}
           />
           <Bar dataKey="amount" radius={[6, 6, 0, 0]}>
-            {data.map((entry, index) => (
+            {data.map((entry: any, index: number) => (
               <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
             ))}
           </Bar>

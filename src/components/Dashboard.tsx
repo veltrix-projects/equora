@@ -16,7 +16,7 @@ export default function Dashboard() {
   const [inviteCode, setInviteCode] = useState("");
   const [settlements, setSettlements] = useState<Settlement[]>([]);
 
-  const totalBalance = balances.reduce((acc, curr) => acc + Number(curr.balance), 0);
+  const totalBalance = balances.reduce((acc: number, curr: any) => acc + Number(curr.balance), 0);
 
   useEffect(() => {
     if (balances.length > 0) {
