@@ -5,36 +5,70 @@ import Dashboard from "@/components/Dashboard";
 import Omnibar from "@/components/Omnibar";
 import AnalyticsSummary from "@/components/AnalyticsSummary";
 import ExpenseFeed from "@/components/ExpenseFeed";
+import DraftsInbox from "@/components/DraftsInbox";
 import { useEquoraStore } from "@/store/useEquoraStore";
 import { useGroups } from "@/hooks/useGroups";
 import { useExpenses } from "@/hooks/useExpenses";
 import { supabase } from "@/lib/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
-import { LogOut, Sparkles } from "lucide-react";
+import { LogOut, Sparkles, Inbox, Bell } from "lucide-react";
 
 export default function Home() {
-  const { user, setUser, activeGroup, setActiveGroup, groups, setGroups, expenses, setExpenses } = useEquoraStore();
+  const { user, setUser, activeGroup, setActiveGroup, groups, setGroups, expenses, setExpenses, drafts, setDrafts } = useEquoraStore();
   const { fetchGroups, createGroup, joinGroup } = useGroups();
   const [loading, setLoading] = useState(true);
   const [authView, setAuthView] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showDrafts, setShowDrafts] = useState(false);
+  const [nudge, setNudge] = useState<string | null>(null);
 
   // 1. Handle Auth State
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
-      if (session?.user) fetchGroups(session.user.id);
+      if (session?.user) {
+        fetchGroups(session.user.id);
+        fetchDrafts(session.user.id);
+        checkNudges(session.user.id);
+      }
       setLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
-      if (session?.user) fetchGroups(session.user.id);
+      if (session?.user) {
+        fetchGroups(session.user.id);
+        fetchDrafts(session.user.id);
+      }
     });
 
     return () => subscription.unsubscribe();
   }, []);
+
+  const fetchDrafts = async (userId: string) => {
+    const { data } = await supabase.from('drafts').select('*').eq('user_id', userId);
+    if (data) setDrafts(data);
+  };
+
+  const checkNudges = async (userId: string) => {
+    // Simple nudge logic
+    const { data: recentExpenses } = await supabase
+      .from('expenses')
+      .select('created_at')
+      .eq('paid_by', userId)
+      .limit(1);
+    
+    if (!recentExpenses || recentExpenses.length === 0) {
+      setNudge("You haven't added expenses yet! Try capturing a quick draft.");
+    } else {
+      const lastExp = new Date(recentExpenses[0].created_at);
+      const diff = Date.now() - lastExp.getTime();
+      if (diff > 7 * 24 * 60 * 60 * 1000) {
+        setNudge("It's been a week since your last split. Anything new to add? 👀");
+      }
+    }
+  };
 
   // 2. Fetch Expenses for Active Group
   useEffect(() => {
@@ -111,7 +145,7 @@ export default function Home() {
       // Replace optimistic expense with real one
       setExpenses([exp, ...previousExpenses]);
 
-      // Refresh balances (Triggers handle DB side, we just fetch)
+      // Refresh balances
       const { data: updatedBalances } = await supabase
         .from('group_balances')
         .select('*')
@@ -124,6 +158,29 @@ export default function Home() {
       setExpenses(previousExpenses); // Rollback
       alert("Failed to add expense. Please try again.");
     }
+  };
+
+  const handleAddDraft = async (parsedData: any) => {
+    if (!user) return;
+    const { data: draft, error } = await supabase.from('drafts').insert({
+      user_id: user.id,
+      group_id: activeGroup?.id || null,
+      data: parsedData
+    }).select().single();
+
+    if (draft) setDrafts([draft, ...drafts]);
+  };
+
+  const handleConvertDraft = async (draft: any) => {
+    if (!activeGroup) {
+      alert("Please select a group first to convert this draft.");
+      setShowDrafts(false);
+      return;
+    }
+    await handleAddExpense(draft.data);
+    const { error } = await supabase.from('drafts').delete().eq('id', draft.id);
+    if (!error) setDrafts(drafts.filter(d => d.id !== draft.id));
+    setShowDrafts(false);
   };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-background">Loading...</div>;
@@ -154,9 +211,45 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-background relative pb-20">
       <nav className="p-6 flex justify-between items-center max-w-4xl mx-auto">
-         <span className="font-bold text-xl">Equora</span>
-         <button onClick={() => supabase.auth.signOut()} className="glass p-2 rounded-lg text-rose-400"><LogOut size={18} /></button>
+         <span className="font-bold text-xl flex items-center gap-2">Equora <Sparkles size={16} className="text-primary" /></span>
+         <div className="flex gap-2">
+            <button 
+              onClick={() => setShowDrafts(true)}
+              className="glass p-2 rounded-lg text-muted-foreground relative"
+            >
+              <Inbox size={18} />
+              {drafts.length > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-[8px] text-primary-foreground flex items-center justify-center rounded-full font-black">
+                  {drafts.length}
+                </span>
+              )}
+            </button>
+            <button onClick={() => supabase.auth.signOut()} className="glass p-2 rounded-lg text-rose-400"><LogOut size={18} /></button>
+         </div>
       </nav>
+
+      <AnimatePresence>
+        {nudge && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="px-6 max-w-4xl mx-auto mb-4"
+          >
+            <div className="bg-primary/10 border border-primary/20 p-4 rounded-2xl flex items-center gap-3">
+              <Bell className="text-primary" size={20} />
+              <p className="text-sm font-medium flex-1">{nudge}</p>
+              <button onClick={() => setNudge(null)} className="text-muted-foreground"><X size={16} /></button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showDrafts && (
+          <DraftsInbox onClose={() => setShowDrafts(false)} onConvert={handleConvertDraft} />
+        )}
+      </AnimatePresence>
 
       {!activeGroup ? (
         <Dashboard />
@@ -168,7 +261,7 @@ export default function Home() {
               <span className="text-xs glass px-2 py-1 rounded text-muted-foreground font-mono">#{activeGroup.invite_code}</span>
            </header>
            
-           <AnalyticsSummary expenses={currentExpenses} />
+           <AnalyticsSummary expenses={expenses} />
            
            <section>
              <h3 className="text-lg font-semibold italic mb-4">Recent Activity</h3>
@@ -177,7 +270,7 @@ export default function Home() {
         </div>
       )}
 
-      {activeGroup && <Omnibar onAdd={handleAddExpense} />}
+      <Omnibar onAdd={handleAddExpense} onDraft={handleAddDraft} />
     </main>
   );
 }
